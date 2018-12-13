@@ -1,0 +1,101 @@
+#Importar los modulos necesarios
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+pd.core.common.is_list_like = pd.api.types.is_list_like
+from pandas_datareader import data as pdr
+import fix_yahoo_finance as yf
+
+yf.pdr_override() #arreglamos el data reade de Yahoo
+activos = ["SPY", "AAPL", "MSFT","AMZN","CSCO"]
+start_date = "2010-08-06"
+end_date = "2018-11-14"
+
+df=pd.DataFrame()
+for activo in activos:
+    df_activo = pdr.get_data_yahoo(activo, start=start_date, end=end_date)["Adj Close"]
+    df_activo = df_activo.to_frame(name=activo)
+    df = pd.concat([df_activo, df], axis=1, sort=False)
+df = df.dropna()
+df.head(5)
+
+df = df.pct_change().dropna()
+#Contador para ir acumulando los valores en relación al ("Portafolio Ingenuo")
+weights = []
+n_activos = len(activos)
+
+#Portafolio Ingenuo
+for i in range(n_activos):
+    weights.append(1/n_activos)
+
+#Portafolio Ingenuo
+    
+w = np.array(weights)
+
+r = np.array(np.mean(df))
+C = np.cov(df.transpose())
+
+def mu(w,r):
+    '''Rendimiento portafolio anualizado'''
+    return sum(w * r * 250) 
+
+
+def sigma(w, C):
+    '''Desv STD portadolio anualizado'''
+    return np.dot(w,np.dot(C,w.T)) ** (1/2) * 250 ** (1/2)
+
+
+def sharpe(w):
+    '''Sharpe ratio con rf de 5%'''
+    rf = .04
+    return (mu(w,r) - rf) / sigma(w,C)
+
+
+def neg_sharpe(w):
+    '''Sharpe ratio negativo'''
+    return -sharpe(w)
+
+
+def random_ports(n):
+    '''Portafolio aleatorios'''
+    means, stds = [],[]
+    for i in range(n):
+        rand_w = np.random.rand(len(activos))
+        rand_w = rand_w / sum(rand_w)
+        means.append(mu(rand_w, r))
+        stds.append(sigma(rand_w,C))
+    
+    return means, stds
+print("Sharpe port equal w:", round(sharpe(w),2))
+#Sharpe port equal w: 1.03
+
+import scipy.optimize as optimize
+
+def apply_sum_constraint(inputs):
+    total = 1 - np.sum(inputs)
+    return total
+
+my_constraints = ({'type': 'eq', "fun": apply_sum_constraint })
+
+
+result = optimize.minimize(neg_sharpe, 
+                      w, 
+                      method='SLSQP', 
+                      bounds=((0, 1.0), (0, 1.0), (0, 1.0),(0,1.0),(0,1.0)),
+                      options={'disp': True},
+                      constraints=my_constraints)
+print(result)
+optimal_w = result["x"]
+
+#Grafiquemos
+n_portfolios = 20000
+means, stds = random_ports(n_portfolios)
+
+best_mu = mu(optimal_w, r)
+best_sigma = sigma(optimal_w, C)
+best_sharpe = sharpe(optimal_w)
+plt.plot(stds, means, 'o', markersize=1)
+plt.plot(best_sigma, best_mu, 'x',  markersize=15)
+plt.xlabel('Desviación Estándar')
+plt.ylabel('Rentabilidad Promedio')
+plt.title('Modelo de Markowitz Eficiencia en la cartera de inversión usando portafolios aleatorios')
